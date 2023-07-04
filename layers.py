@@ -1,5 +1,7 @@
 import megengine.functional as F
 import megengine.module as M
+import megengine as mge
+from collections import OrderedDict
 
 
 class UpSample(M.Module):
@@ -206,6 +208,64 @@ class Concat(M.Module):
 
     def forward(self, x):
         return F.concat(x,self.d)
-    
+
+def meshgrid(x, y):
+    # meshgrid wrapper for megengine
+    assert len(x.shape) == 1
+    assert len(y.shape) == 1
+    mesh_shape = (y.shape[0], x.shape[0])
+    mesh_x = F.broadcast_to(x, mesh_shape)
+    mesh_y = F.broadcast_to(y.reshape(-1, 1), mesh_shape)
+    return mesh_x, mesh_y 
+ 
 class detect(M.Module):
+    stride = None
+    onnx_dynamic = False  # ONNX export parameter
     
+    def __init__(self, nc = 80, anchors = (), ch =(), inplace = True):
+        super().__init__()
+        self.nc = nc
+        self.no = nc+5
+        self.nl = len(anchors)
+        self.na = len(anchors[0]) // 2
+        self.grid = [F.zeros((1))] * self.nl
+        self.anchor_grid = [F.zeros((1))] * self.nl
+        self.inplace = inplace
+        modules = OrderedDict()
+        for idx, x in enumerate(ch):
+            modules[idx] = M.Conv2d(x, self.no * self.na, 1)
+        self.m = M.Sequential(modules)
+
+    def forward(self, x):
+        z = []
+        for i in range(self.nl):
+            x[i] = self.m[i](x[i])
+            bs, _, ny, nx = x[i].shape
+            x[i] = x[i].reshape(bs, self.na, self.no, ny, nx)
+            x[i] = F.transpose(x[i], (0, 1, 3, 4, 2))
+        if not self.training:
+            if self.grid[i].shape[2:4] != x[i].shape[2:4] or self.onnx_dynamic:
+                self.grid[i], self.anchor_grid[i] = self._make_grid(nx, ny, i)
+            
+            y = x[i].sigmoid()
+            if self.inplace:
+                y[..., 0:2] = (y[..., 0:2] *2. - 0.5 + self.grid[i]) * self.stride[i]
+                y[..., 2:4] = (y[..., 2:4] *2) ** 2 * self.anchor_grid[i]
+            else:
+                xy = (y[..., 0:2] * 2. - 0.5 + self.grid[i]) * self.stride[i]
+                wh = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]
+                y = F.concat([xy, wh, y[..., 4:]], -1)
+            y = y.reshape(bs, -1, self.no)
+            z.append(y)
+
+        return x if self.training else (F.concat(z,axis=1), x) 
+            
+
+    def _make_grid(self, nx = 20, ny = 20, i = 0):
+        d = self.anchors[i].device
+        yv, xv = meshgrid(F.arange(ny), F.arange(nx))
+        grid = F.stack((xv, yv), axis=2).expand_dims(0).broadcast_to((1, self.na, ny, nx, 2)).astype("float32")
+        t = self.anchors[i]
+        anchor_grid = (t * self.stride[i]).reshape((1, self.na, 1, 1, 2)).broadcast_to((1, self.na, ny, nx, 2)).astype("float32")
+        return grid, anchor_grid
+
