@@ -90,7 +90,7 @@ class Bottleneck(M.Module):
         hidden_channels = int(out_channels * expansion)
         Conv = DWConv if depthwise else BaseConv
         self.conv1 = BaseConv(in_channels, hidden_channels, 1, stride=1, act=act)
-        self.conv2 = Conv(hidden_channels, out_channels, 3, stride=1, act=act)
+        self.conv2 = BaseConv(hidden_channels, out_channels, 3, stride=1, act=act)
         self.use_add = shortcut and in_channels == out_channels
 
     def forward(self, x):
@@ -186,8 +186,8 @@ class SPPF(M.Module):
     def __init__(self, in_channels, out_channels, kernel_size=5):
         super().__init__()
         in_half_channels = in_channels // 2
-        self.conv1 = BaseConv(in_half_channels)
-        self.conv2 = BaseConv(out_channels)
+        self.conv1 = BaseConv(in_channels, in_half_channels, 1, 1)
+        self.conv2 = BaseConv(in_half_channels*4, out_channels, 1, 1)
         self.maxpool = M.MaxPool2d(kernel_size=kernel_size, strides=1, padding=kernel_size//2)
     
     def forward(self, x):
@@ -195,9 +195,17 @@ class SPPF(M.Module):
         y1 = self.maxpool(x)
         y2 = self.maxpool(y1)
         y3 = self.maxpool(y2)
-        concat_all = F.concat(x, y1, y2, y3)
+        concat_all = F.concat([x, y1, y2, y3],axis=1)
         output = self.conv2(concat_all)
         return output
 
-class YoloHead(M.Module):
-    pass
+class Concat(M.Module):
+    def __init__(self, dimension=1):
+        super().__init__()
+        self.d = dimension
+
+    def forward(self, x):
+        return F.concat(x,self.d)
+    
+class detect(M.Module):
+    
