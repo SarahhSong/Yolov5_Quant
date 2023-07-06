@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append('../yolov5')
+sys.path.append('../Yolov5_Quant')
 
 import os
 import tqdm
@@ -26,13 +26,15 @@ def main():
     # 可以选择 ['5l', '5s', '5m', '5x']
     yolov5_type = "5s"
     image_shape = (320, 320, 3)
-    num_class = 91
+    num_class = 81
     # num_class = 2
     batch_size = 32
     # -1表示全部数据参与训练
     train_img_nums = -1
-    train_coco_json = './data/cat_dog_face_data/train_annotations.json'
-    val_coco_json = './data/cat_dog_face_data/val_annotations.json'
+    train_coco_json = '/content/coco2017/annotations/instances_train2017.json'
+    val_coco_json = '/content/coco2017/annotations/instances_val2017.json'
+    train_coco_data = '/content/coco2017/train2017'
+    val_coco_data = '/content/coco2017/val2017'
 
     # 类别名, 也可以自己提供一个数组, 不通过coco
     classes = ['none', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
@@ -58,8 +60,10 @@ def main():
     # tensorboard日志
     summary_writer = tf.summary.create_file_writer(log_dir)
     # data generator
+    
     coco_data = CoCoDataGenrator(
         coco_annotation_file= train_coco_json,
+        coco_data_file = train_coco_data,
         train_img_nums=train_img_nums,
         img_shape=image_shape,
         batch_size=batch_size,
@@ -72,6 +76,7 @@ def main():
     # 验证集
     val_coco_data = CoCoDataGenrator(
         coco_annotation_file=val_coco_json,
+        coco_data_file = val_coco_data,
         train_img_nums=-1,
         img_shape=image_shape,
         batch_size=batch_size,
@@ -81,7 +86,7 @@ def main():
         need_down_image=False,
         using_argument=False
     )
-
+    
     yolo = Yolo(
         image_shape=image_shape,
         batch_size=batch_size,
