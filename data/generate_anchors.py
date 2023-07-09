@@ -1,17 +1,17 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from data.generate_coco_data import CoCoDataGenrator
+from generate_coco_data import CoCoDataGenrator
 
 
-def save_coco_all_wh(anno_file, image_shape, output_anchor_file):
+def save_coco_all_wh(anno_file, coco_data_file, image_shape, output_anchor_file):
     """ 生成coco标注数据目标边框宽高
     :param anno_file:
     :param image_shape:
     :param output_anchor_file:
     :return:
     """
-    coco = CoCoDataGenrator(coco_annotation_file=anno_file, img_shape=image_shape, batch_size=1, train_img_nums=-1)
+    coco = CoCoDataGenrator(coco_annotation_file=anno_file, coco_data_file=coco_data_file ,img_shape=image_shape, batch_size=1, train_img_nums=-1, need_down_image=False)
     all_wh = []
     for batch in range(coco.total_batch_size):
         data = coco.next_batch()
@@ -105,10 +105,11 @@ def kmeans(x, K, save_cluster_fig=""):
 
 if __name__ == "__main__":
     # save_coco_all_wh(
-    #     anno_file="./data/instances_val2017.json",
+    #     anno_file="/content/coco2017/annotations/instances_val2017.json",
+    #     coco_data_file="/content/coco2017/val2017",
     #     image_shape=[320,320,3],
-    #     output_anchor_file='./data/coco2017_320x320_val_all_wh.txt'
+    #     output_anchor_file='coco2017_320x320_val_all_wh.txt'
     # )
 
-    data = get_wh('./coco2017_320x320_val_all_wh.txt')
+    data = get_wh('coco2017_320x320_val_all_wh.txt')
     kmeans(data, 9, save_cluster_fig="./anchors_320x320_test.png")

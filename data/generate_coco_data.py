@@ -441,12 +441,14 @@ class CoCoDataGenrator:
 
 if __name__ == "__main__":
     from data.visual_ops import draw_bounding_box, draw_instance
+    from PIL import Image
 
     # file = "./cat_dog_face_data/train_annotations.json"
     file = "/content/coco2017/annotations/instances_val2017.json"
     # file = "./yanhua/annotations.json"
     coco = CoCoDataGenrator(
         coco_annotation_file=file,
+        coco_data_file = '/content/coco2017/val2017',
         train_img_nums=30,
         include_mask=True,
         include_keypoint=False,
@@ -475,8 +477,8 @@ if __name__ == "__main__":
         mask = gt_masks[-1][:, :, i]
         # img = draw_instance(img, mask)
         img = draw_bounding_box(img, label_name, label, x1, y1, x2, y2)
-    cv2.imshow("", img)
-    cv2.waitKey(0)
+    #cv2.imshow("",img)
+    #cv2.waitKey(0)
 
     # data = coco.next_batch()
     # print(data)
