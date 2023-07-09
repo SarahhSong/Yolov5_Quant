@@ -85,28 +85,29 @@ class DWConv(M.Module):
 class Bottleneck(M.Module):
     # Standard bottleneck
     def __init__(
-        self, out_channels, shortcut=True, groups=1, expansion=0.5
+        self, in_channels, out_channels, shortcut=True,
+        expansion=0.5, depthwise=False, act="silu"
     ):
         super().__init__()
-        self.out_channels = out_channels
-        self.shortcut = shortcut
-        self.conv1 = Conv(out_channels=int(out_channels * expansion))
-        self.conv2 = Conv(out_channels=out_channels, kernel_size=3, stride=1, groups=groups)
+        hidden_channels = int(out_channels * expansion)
+        # Conv = DWConv if depthwise else Conv
+        self.conv1 = Conv(in_channels, hidden_channels, 1, stride=1, act=act)
+        self.conv2 = Conv(hidden_channels, out_channels, 3, stride=1, act=act)
+        self.use_add = shortcut and in_channels == out_channels
 
-    def forward(self, inputs):
-        # in_shape = tf.shape(inputs)
-        in_shape = inputs.get_shape()
-        if self.shortcut and in_shape[-1] == self.out_channels:
-            return inputs + self.conv2(self.conv1(inputs))
-        else:
-            return self.conv2(self.conv1(inputs))
+    def forward(self, x):
+        y = self.conv2(self.conv1(x))
+        if self.use_add:
+            y = y + x
+        return y
 
 
 class C3(M.Module):
     """C3 in yolov5, CSP Bottleneck with 3 convolutions"""
 
     def __init__(
-        self, out_channels, num_bottles=1, shortcut=True, groups=1, expansion=0.5
+        self, in_channels, out_channels, n=1,
+        shortcut=True, expansion=0.5, depthwise=False, act="silu"
     ):
         """
         Args:
@@ -116,22 +117,22 @@ class C3(M.Module):
         """
         # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
-        out_expansion_channels = int(out_channels * expansion)
-        self.conv1 = Conv(out_channels=out_expansion_channels)
-        self.conv2 = Conv(out_channels=out_expansion_channels)
-        self.conv3 = Conv(out_channels=out_channels)
+        hidden_channels = int(out_channels * expansion)  # hidden channels
+        self.conv1 = Conv(in_channels, hidden_channels, 1, stride=1, act=act)
+        self.conv2 = Conv(in_channels, hidden_channels, 1, stride=1, act=act)
+        self.conv3 = Conv(2 * hidden_channels, out_channels, 1, stride=1, act=act)
         module_list = [
-            Bottleneck(out_channels=out_expansion_channels, shortcut=shortcut, groups=groups, expansion=1.0)
-            for _ in range(num_bottles)
+            Bottleneck(hidden_channels, hidden_channels, shortcut, 1.0, depthwise, act=act)
+            for _ in range(n)
         ]
         self.m = M.Sequential(*module_list)
 
-    def forward(self, inputs):
-        y1 = self.bottlenecks(self.conv1(inputs))
-        y2 = self.conv2(inputs)
-        y = F.concat([y1, y2],axis=-1)
-        output = self.conv3(y)
-        return output
+    def forward(self, x):
+        x_1 = self.conv1(x)
+        x_2 = self.conv2(x)
+        x_1 = self.m(x_1)
+        x = F.concat((x_1, x_2), axis=1)
+        return self.conv3(x)
 
 
 class SPPF(M.Module):
@@ -140,7 +141,7 @@ class SPPF(M.Module):
         in_half_channels = in_channels // 2
         self.conv1 = Conv(in_channels, in_half_channels, 1, 1)
         self.conv2 = Conv(in_half_channels*4, out_channels, 1, 1)
-        self.maxpool = M.MaxPool2d(kernel_size=kernel_size, strides=1, padding=kernel_size//2)
+        self.maxpool = M.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2)
     
     def forward(self, x):
         x = self.conv1(x)
@@ -158,6 +159,7 @@ class Concat(M.Module):
 
     def forward(self, x):
         return F.concat(x,self.d)
+
 
 class Reshape(M.Module):
     def __init__(self, target_shape):
