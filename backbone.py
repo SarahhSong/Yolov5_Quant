@@ -7,7 +7,7 @@ import megengine.module as M
 from layers import Conv, C3, SPPF, Concat, Upsample, Reshape
 
 
-class Yolov5s(M.Module):
+class Backbone(M.Module):
     def __init__(self, image_shape, batch_size, num_class, anchors_per_location):
         super().__init__()
         self.image_shape = image_shape
