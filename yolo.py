@@ -1,20 +1,31 @@
 import sys
 
-sys.path.append("../yolov5")
+# sys.path.append("./yolov5")
+sys.path.insert(0,"/content/drive/MyDrive/Colab Notebooks/python_packages/")
 
 import os
 import numpy as np
 import cv2
 import megengine.functional as F
 import megengine.module as M
+import megengine as mge
 # import tensorflow as tf
 # from yolov5l import Yolov5l
 # from yolov5x import Yolov5x
 # from yolov5m import Yolov5m
 from yolov5s import Yolov5s
-from layers import nms, YoloHead
+from layers import nms, YoloHead, Reshape
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+def meshgrid(x, y):
+    # meshgrid wrapper for megengine
+    assert len(x.shape) == 1
+    assert len(y.shape) == 1
+    mesh_shape = (y.shape[0], x.shape[0])
+    mesh_x = F.broadcast_to(x, mesh_shape)
+    mesh_y = F.broadcast_to(y.reshape(-1, 1), mesh_shape)
+    return mesh_x, mesh_y 
 
 class Yolov5(M.Module):
      def __init__(self,
@@ -27,6 +38,14 @@ class Yolov5(M.Module):
               anchors,
               anchors_masks):
          super().__init__()
+         self.image_shape = image_shape
+         self.batch_size = batch_size
+         self.num_class = num_class
+         self.anchors_per_location = anchors_per_location
+         self.is_training = is_training
+         self.strides = strides
+         self.anchors = anchors
+         self.anchors_masks = anchors_masks
          self.base_net = Yolov5s(image_shape=self.image_shape,
                       batch_size=self.batch_size,
                       num_class=self.num_class,
@@ -36,7 +55,7 @@ class Yolov5(M.Module):
                     is_training=self.is_training,
                     strides=self.strides,
                     anchors=self.anchors,
-                    anchors_masks=self.anchor_masks)
+                    anchors_masks=self.anchors_masks)
 
      def forward(self, x):
          x = self.base_net(x)
@@ -115,11 +134,13 @@ class Yolo:
         if not is_training:
             assert model_path, "Inference mode need the model_path!"
             assert os.path.isfile(model_path), "Can't find the model weight file!"
-            self.yolov5.load_weights(model_path, by_name=True)
+            checkpoint = mge.load(model_path)
+            self.yolov5.load_state_dict(checkpoint["model_state_dict"])
+            # self.yolov5.load_weights(model_path, by_name=True)
             # self.yolov5 = tf.keras.models.load_model(model_path)
             # self.load_weights(model_path, by_name=True)
             print("loading model weight from {}".format(model_path))
-
+    '''
     def load_weights(self, model_path, by_name=True, exclude=None):
         import h5py
         from tensorflow.python.keras.saving import hdf5_format
@@ -146,8 +167,8 @@ class Yolo:
                 hdf5_format.load_weights_from_hdf5_group_by_name(f, layers)
             else:
                 hdf5_format.load_weights_from_hdf5_group(f, layers)
-    
     '''
+    
     def yolo_head(self, features, is_training):
         """ yolo最后输出层
         :param features:
@@ -158,44 +179,46 @@ class Yolo:
         detect_res = []
         for i, pred in enumerate(features):
             if not is_training:
-                f_shape = tf.shape(pred)
+                f_shape = pred.shape                
                 if len(self.grid) < self.anchor_masks.shape[0]:
                     grid, anchor_grid = self._make_grid(f_shape[1], f_shape[2], i)
                     self.grid.append(grid)
                     self.anchor_grid.append(anchor_grid)
 
                 # 这里把输出的值域从[0,1]调整到[0, image_shape]
-                pred_xy = (tf.sigmoid(pred[..., 0:2]) * 2. - 0.5 + self.grid[i]) * self.strides[i]
-                pred_wh = (tf.sigmoid(pred[..., 2:4]) * 2) ** 2 * self.anchor_grid[i]
+                pred_xy = (F.sigmoid(pred[..., 0:2]) * 2. - 0.5 + self.grid[i]) * self.strides[i]
+                pred_wh = (F.sigmoid(pred[..., 2:4]) * 2) ** 2 * self.anchor_grid[i]
                 # print(self.grid)
-                pred_obj = tf.sigmoid(pred[..., 4:5])
-                pred_cls = tf.keras.layers.Softmax()(pred[..., 5:])
-                cur_layer_pred_res = tf.keras.layers.Concatenate(axis=-1)([pred_xy, pred_wh, pred_obj, pred_cls])
+                pred_obj = F.sigmoid(pred[..., 4:5])
+                pred_cls = M.Softmax()(pred[..., 5:])
+                cur_layer_pred_res = M.Concat([pred_xy, pred_wh, pred_obj, pred_cls], axis=-1)
 
                 # cur_layer_pred_res = tf.reshape(cur_layer_pred_res, [self.batch_size, -1, self.num_class + 5])
-                cur_layer_pred_res = tf.keras.layers.Reshape([-1, self.num_class + 5])(cur_layer_pred_res)
+                cur_layer_pred_res = Reshape([-1, self.num_class + 5])(cur_layer_pred_res)
+
                 detect_res.append(cur_layer_pred_res)
             else:
                 detect_res.append(pred)
-        return detect_res if is_training else tf.concat(detect_res, axis=1)
-
+        return detect_res if is_training else F.concat(detect_res, axis=1)
+    
     def _make_grid(self, h, w, i):
         cur_layer_anchors = self.anchors[self.anchor_masks[i]] * np.array([[self.image_shape[1], self.image_shape[0]]])
         num_anchors_per_layer = len(cur_layer_anchors)
-        yv, xv = tf.meshgrid(tf.range(h), tf.range(w))
-        grid = tf.stack((xv, yv), axis=2)
+        yv, xv = meshgrid(F.range(h), F.range(w))
+        grid = F.stack((xv, yv), axis=2)
         # 用来计算中心点的grid cell左上角坐标
-        grid = tf.tile(tf.reshape(grid, [1, h, w, 1, 2]), [1, 1, 1, num_anchors_per_layer, 1])
-        grid = tf.cast(grid, tf.float32)
+        grid = F.tile(F.reshape(grid, [1, h, w, 1, 2]), [1, 1, 1, num_anchors_per_layer, 1])
+        grid = mge.Tensor(grid, dtype = "float32")
         # anchor_grid = tf.reshape(cur_layer_anchors * self.strides[i], [1, 1, 1, num_anchors_per_layer, 2])
-        anchor_grid = tf.reshape(cur_layer_anchors, [1, 1, 1, num_anchors_per_layer, 2])
+        anchor_grid = F.reshape(cur_layer_anchors, [1, 1, 1, num_anchors_per_layer, 2])
         # 用来计算宽高的anchor w/h
-        anchor_grid = tf.tile(anchor_grid, [1, h, w, 1, 1])
-        anchor_grid = tf.cast(anchor_grid, tf.float32)
+        anchor_grid = F.tile(anchor_grid, [1, h, w, 1, 1])
+        anchor_grid = mge.Tensor(anchor_grid, dtype = "float32")
+
 
         return grid, anchor_grid
     
-    
+    '''
     def build_graph(self):
         # inputs = tf.keras.layers.Input(shape=self.image_shape, batch_size=self.batch_size)
         inputs = tf.keras.layers.Input(shape=self.image_shape)
@@ -297,13 +320,14 @@ class Yolo:
 
 if __name__ == "__main__":
     image_shape = (640, 640, 3)
-    anchors = np.array([[10, 13], [16, 30], [33, 23],
-                        [30, 61], [62, 45], [59, 119],
-                        [116, 90], [156, 198], [373, 326]]) / image_shape[0]
+    anchors = np.array([[8, 10], [21, 26], [33, 64],
+                        [65, 34], [58, 123], [102, 74],
+                        [117, 182], [204, 107], [248, 220]]) / image_shape[0]
     anchor_masks = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]], dtype=np.int8)
     anchors = np.array(anchors, dtype=np.float32)
-    yolo = Yolo(num_class=90, batch_size=1, is_training=True, anchors=anchors, anchor_masks=anchor_masks)
-    yolo.yolov5.summary(line_length=200)
+    yolo = Yolo(num_class=80, batch_size=1, is_training=True, anchors=anchors, anchor_masks=anchor_masks)
+    print(yolo.yolov5.named_modules)
+    # yolo.yolov5.summary(line_length=200)
     #
     # from tensorflow.python.ops import summary_ops_v2
     # from tensorflow.python.keras.backend import get_graph

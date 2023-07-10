@@ -1,13 +1,15 @@
 import sys
 
 sys.path.append('../Yolov5_Quant')
+sys.path.insert(0,"/content/drive/MyDrive/Colab Notebooks/python_packages/")
+
 
 import os
 import tqdm
 import numpy as np
 import random
 import tensorflow as tf
-import megengine
+import megengine as mge
 import megengine.optimizer as optim
 from megengine.autodiff import GradManager
 from data.visual_ops import draw_bounding_box
@@ -96,7 +98,8 @@ def main():
         anchor_masks=anchor_masks,
         net_type=yolov5_type
     )
-    yolo.yolov5.summary(line_length=200)
+    yolo.yolov5.named_modules
+    # yolo.yolov5.summary(line_length=200)
     # optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001)
     optimizer = optim.Adam(yolo.yolov5.parameters() , lr = 0.0001)
 
@@ -121,6 +124,7 @@ def main():
                 data = coco_data.next_batch()
                 valid_nums = data['valid_nums']
                 gt_imgs = np.array(data['imgs'] / 255., dtype=np.float32)
+                gt_imgs = mge.Tensor(gt_imgs)
                 gt_boxes = np.array(data['bboxes'] / image_shape[0], dtype=np.float32)
                 gt_classes = data['labels']
 
@@ -132,8 +136,8 @@ def main():
                 # for i, nums in enumerate(valid_nums):
                 #     print("gt boxes: ", gt_boxes[i, :nums, :] * image_shape[0])
                 #     print("gt classes: ", gt_classes[i, :nums])
-
-                yolo_preds = yolo.yolov5(gt_imgs, training=True)
+                print(gt_imgs.shape)
+                yolo_preds = yolo.yolov5(gt_imgs)
                 loss_xy, loss_wh, loss_box, loss_obj, loss_cls = loss_fn(yolo_preds, gt_boxes, gt_classes)
 
                 total_loss = loss_box + loss_obj + loss_cls
@@ -198,11 +202,22 @@ def main():
         if mAP > pre_mAP:
             pre_mAP = mAP
             # yolo.yolov5.save_weights(log_dir+"/yolov{}-best.h5".format(yolov5_type))
-            megengine.save(yolo.yolov5.state_dict(), './log_dor/yolov{}-best.pkl'.format(yolov5_type))
+            mge.save({
+                "epoch": epoch,
+                "state_dict": yolo.yolov5.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "mAP": mAP
+               }, './log_dor/yolov{}-best.pkl'.format(yolov5_type))
             print("save {}/yolov{}-best.pkl best weight with {} mAP.".format(log_dir, yolov5_type, mAP))
         # yolo.yolov5.save_weights(log_dir+"/yolov{}-last.h5".format(yolov5_type))
-        megengine.save(yolo.yolov5.state_dict(), './log_dor/yolov{}-last.pkl'.format(yolov5_type))
-        print("save {}/yolov{}-last.pkl last weights at epoch {}.".format(log_dir, yolov5_type, epoch))
+        if epoch % 10 == 0:
+          mge.save({
+                "epoch": epoch,
+                "state_dict": yolo.yolov5.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "mAP": mAP
+               }, './log_dor/yolov{}-last.pkl'.format(yolov5_type))
+          print("save {}/yolov{}-last.pkl last weights at epoch {}.".format(log_dir, yolov5_type, epoch))
 
 
 if __name__ == "__main__":

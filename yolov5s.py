@@ -1,41 +1,50 @@
 import sys
 
-sys.path.append("../yolov5")
+sys.path.append("../Yolov5_Quant")
+sys.path.insert(0,"/content/drive/MyDrive/Colab Notebooks/python_packages/")
 
-# import tensorflow as tf
 import megengine.functional as F
 import megengine.module as M
-from layers import Conv, C3, SPPF, Concat, Upsample
+from layers import Conv, C3, SPPF, Concat, Upsample, Reshape
 
 
 class Yolov5s(M.Module):
     def __init__(self, image_shape, batch_size, num_class, anchors_per_location):
+        super().__init__()
         self.image_shape = image_shape
         self.batch_size = batch_size
         self.num_class = num_class
         self.anchors_per_location = anchors_per_location
-        self.conv1 = Conv(out_channels=32, kernel_size=6, stride=2, padding='same')
-        self.conv2 = Conv(out_channels=64, kernel_size=3, stride=2, padding='same')
-        self.C3_1 = C3(out_channels=64, num_bottles=1)
-        self.conv3 = Conv(out_channels=128, kernel_size=3, stride=2, padding='same')
-        self.C3_2 = C3(out_channels=128, num_bottles=2)
-        self.conv4 = Conv(out_channels=256, kernel_size=3, stride=2, padding='same')
-        self.C3_3 = C3(out_channels=256, num_bottles=3)
-        self.conv5 = Conv(out_channels=512, kernel_size=3, stride=2, padding='same')
-        self.C3_4 =  C3(out_channels=512, num_bottles=1)
-        self.sppf_1 = SPPF(in_channels=512, out_channels=512, kernel_size=5)
-        self.conv6 = Conv(out_channels=256, kernel_size=1, stride=1)
+
+        self.conv1 = Conv(3, 32, ksize=6, stride=2)
+        self.conv2 = Conv(32, 64, ksize=3, stride=2)
+        self.C3_1 = C3(64, 64, n=1)
+        self.conv3 = Conv(64, 128, ksize=3, stride=2) 
+
+        self.C3_2 = C3(128, 128, n=2)
+        self.conv4 = Conv(128, 256, ksize=3, stride=2) 
+        
+        self.C3_3 = C3(256, 256, n=3)
+        self.conv5 = Conv(256, 512, ksize=3, stride=2)
+        self.C3_4 =  C3(512, 512, n=1)
+
+        self.sppf = SPPF(512, 512, kernel_size=5)
+
+        # head
+        self.conv6 = Conv(512, 256, ksize=1, stride=1)
         self.upsample = Upsample()
-        self.concat = Concat(dimension=3)
-        self.C3_5 = C3(out_channels=256, num_bottles=1, shortcut=False)
-        self.conv7 = Conv(out_channels=128, kernel_size=1, stride=1, padding='same')
-        self.C3_6 = C3(out_channels=128, num_bottles=3, shortcut=False)
-        self.conv8 = Conv(out_channels=128, kernel_size=3, stride=2, padding='same')
-        self.C3_7 = C3(out_channels=256, num_bottles=1, shortcut=False)
-        self.conv9 = Conv(out_channels=256, kernel_size=3, stride=2, padding='same')
-        self.C3_8 = C3(out_channels=512, num_bottles=1, shortcut=False)
+        self.concat = Concat(dimension=1)
+        self.C3_5 = C3(512, 256, n=1, shortcut=False)
 
+        self.conv7 = Conv(256, 128, ksize=1, stride=1) 
 
+        self.C3_6 = C3(256, 128, n=3, shortcut=False)
+        self.conv8 = Conv(128, 128, ksize=3, stride=2)
+
+        self.C3_7 = C3(256, 256, n=1, shortcut=False) 
+        self.conv9 = Conv(256, 256, ksize=3, stride=2)
+
+        self.C3_8 = C3(512, 512, n=1, shortcut=False) 
 
 
     def forward(self , x):
@@ -48,9 +57,9 @@ class Yolov5s(M.Module):
       x = self.C3_3(x)
       x = self.conv5(x)
       x = self.C3_4(x)
-      x = self.spff_1(x)
+      x = self.sppf(x)
       p5 = x = self.conv6(x)
-      x = self.upsample(x)
+      x = self.upsample(x),
       x = self.concat([x,p4])
       x = self.C3_5(x)
       p6 = x = self.conv7(x)
@@ -62,129 +71,35 @@ class Yolov5s(M.Module):
       p8 = x = self.C3_7(x)
       x = self.conv9(x)
       x = self.concat([x,p5])
-      p9 = self.self.C3_8(x)
+      p9 = self.C3_8(x)
 
       #output
-      p7 = M.Conv2d(128, (self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p7)
-      p7 = M.functional.reshape(p7, (self.image_shape[0]//8, self.image_shape[1]//8, self.anchors_per_location, self.num_class + 5))
+      p7 = M.Conv2d(128, (self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p7) # padding=0
+      p7 = Reshape([self.image_shape[0]//8, self.image_shape[1]//8, self.anchors_per_location, self.num_class + 5])(p7)
       p8 = M.Conv2d(256, (self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p8)
-      p8 = M.functional.reshape(p8, (self.image_shape[0]//16, self.image_shape[1]//16, self.anchors_per_location, self.num_class + 5))
+      p8 = Reshape([self.image_shape[0]//16, self.image_shape[1]//16, self.anchors_per_location, self.num_class + 5])(p8)
       p9 = M.Conv2d(512, (self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p9)
-      p9 = M.functional.reshape(p9, (self.image_shape[0]//32, self.image_shape[1]//32, self.anchors_per_location, self.num_class + 5))
+      p9 = Reshape([self.image_shape[0]//32, self.image_shape[1]//32, self.anchors_per_location, self.num_class + 5])(p9)
       
       return (p7, p8, p9)
 
 
-
-
-
-
-
-
-    '''
-    def build_graph(self):
-        """
-        :param inputs:
-        :return: p7: [batch, h/8, w/8, anchors, num_class+5]
-                 p8: [batch, h/16, w/16, anchors, num_class+5]
-                 p9: [batch, h/32, w/32, anchors, num_class+5]
-        """
-        inputs = tf.keras.Input(shape=self.image_shape, batch_size=self.batch_size)
-        # backbone
-        x = Conv(out_channels=32, kernel_size=6, stride=2, padding='same')(inputs)
-        # 1/4
-        x = Conv(out_channels=64, kernel_size=3, stride=2, padding='same')(x)
-        x = C3(out_channels=64, num_bottles=1)(x)
-        # 1/8
-        p3 = x = Conv(out_channels=128, kernel_size=3, stride=2, padding='same')(x)
-        x = C3(out_channels=128, num_bottles=2)(x)
-        # 1/16
-        p4 = x = Conv(out_channels=256, kernel_size=3, stride=2, padding='same')(x)
-        x = C3(out_channels=256, num_bottles=3)(x)
-        # 1/32
-        x = Conv(out_channels=512, kernel_size=3, stride=2, padding='same')(x)
-        x = C3(out_channels=512, num_bottles=1)(x)
-        x = SPPF(in_channels=512, out_channels=512, kernel_size=5)(x)
-
-        # head
-        p5 = x = Conv(out_channels=256, kernel_size=1, stride=1)(x)
-        # 1/16
-        x = tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='nearest')(x)
-        x = Concat(dimension=3)([x, p4])
-        x = C3(out_channels=256, num_bottles=1, shortcut=False)(x)
-        p6 = x = Conv(out_channels=128, kernel_size=1, stride=1, padding='same')(x)
-        # 1/8
-        x = tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='nearest')(x)
-        x = Concat(dimension=3)([x, p3])
-        p7 = x = C3(out_channels=128, num_bottles=3, shortcut=False)(x)
-        # 1/16
-        x = Conv(out_channels=128, kernel_size=3, stride=2, padding='same')(x)
-        x = Concat(dimension=3)([x, p6])
-        p8 = x = C3(out_channels=256, num_bottles=1, shortcut=False)(x)
-        # 1/32
-        x = Conv(out_channels=256, kernel_size=3, stride=2, padding='same')(x)
-        x = Concat(dimension=3)([x, p5])
-        p9 = C3(out_channels=512, num_bottles=1, shortcut=False)(x)
-
-        # output tensor [batch, grid, grid, anchors, 5 + num_classes]
-        # output tensor [batch, grid, grid, anchors, 5 + num_classes]
-        p7 = tf.keras.layers.Conv2D((self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p7)
-        # p7_shape = tf.shape(p7)
-        # p7 = tf.reshape(p7, [self.batch_size, p7_shape[1], p7_shape[2], self.anchors_per_location, self.num_class + 5])
-        p7 = tf.keras.layers.Reshape([self.image_shape[0]//8, self.image_shape[1]//8, self.anchors_per_location, self.num_class + 5])(p7)
-
-        # [batch, grid, grid, anchors, 5 + num_classes]
-        p8 = tf.keras.layers.Conv2D((self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p8)
-        # p8_shape = tf.shape(p8)
-        # p8 = tf.reshape(p8, [self.batch_size, p8_shape[1], p8_shape[2], self.anchors_per_location, self.num_class + 5])
-        p8 = tf.keras.layers.Reshape([self.image_shape[0]//16, self.image_shape[1]//16, self.anchors_per_location, self.num_class + 5])(p8)
-
-        # [batch, grid, grid, anchors, 5 + num_classes]
-        p9 = tf.keras.layers.Conv2D((self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p9)
-        # p9_shape = tf.shape(p9)
-        # p9 = tf.reshape(p9, [self.batch_size, p9_shape[1], p9_shape[2], self.anchors_per_location, self.num_class + 5])
-        p9 = tf.keras.layers.Reshape([self.image_shape[0]//32, self.image_shape[1]//32, self.anchors_per_location, self.num_class + 5])(p9)
-
-        model = tf.keras.models.Model(inputs=inputs, outputs=[p7, p8, p9])
-        return model
-    '''
-
-
-def gen_data():
-    while True:
-        image = tf.random.normal([2, 512, 512, 3])
-        p7 = tf.random.normal([2, 512 // 8, 512 // 8, 256])
-        p8 = tf.random.normal([2, 512 // 16, 512 // 16, 512])
-        p9 = tf.random.normal([2, 512 // 32, 512 // 32, 1024])
-        yield image, [p7, p8, p9]
+# def gen_data():
+#     while True:
+#         image = tf.random.normal([2, 512, 512, 3])
+#         p7 = tf.random.normal([2, 512 // 8, 512 // 8, 256])
+#         p8 = tf.random.normal([2, 512 // 16, 512 // 16, 512])
+#         p9 = tf.random.normal([2, 512 // 32, 512 // 32, 1024])
+#         yield image, [p7, p8, p9]
 
 
 if __name__ == "__main__":
-    # for i,o in ds_series:
-    #     print(tf.shape(i))
     import os
 
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    # from tensorflow.python.ops import summary_ops_v2
-    # from tensorflow.python.keras.backend import get_graph
-    yolo5s = Yolov5s(image_shape=(416, 416, 3),
+
+    yolo5s = Yolov5s(image_shape=(640, 640, 3),
                      batch_size=2,
                      num_class=30,
                      anchors_per_location=3)
-    model = yolo5s.build_graph()
-    model.summary(line_length=200)
-    # model.compile(
-    #     optimizer='adam',
-    #     loss='mse',
-    #     metrics=['accuracy'])
-    # tb_writer = tf.summary.create_file_writer('./logs')
-    # tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir='./logs')
-    # model.fit_generator(iter(gen_data()), steps_per_epoch=10, epochs=1, callbacks=[tensorboard_callback])
-    # tf.summary.trace_on(graph=True, profiler=True)
-    # Call only one tf.function when tracing.
-    # z = my_func(x, y)
-    # with tb_writer.as_default():
-    #     tf.summary.trace_export(
-    #         name="my_func_trace",
-    #         step=0,
-    #         profiler_outdir='./logs')
+    print(yolo5s.named_modules)

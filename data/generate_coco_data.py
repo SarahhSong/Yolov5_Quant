@@ -1,6 +1,8 @@
 import sys
 
 sys.path.append("../../Yolov5_Quant")
+sys.path.insert(0,"/content/drive/MyDrive/Colab Notebooks/python_packages/")
+
 
 import os
 import cv2
@@ -116,7 +118,8 @@ class CoCoDataGenrator:
             data = self._data_generation(image_id=img_id)
             if len(np.shape(data['imgs'])) > 0:
                 if len(data['bboxes']) > 0:
-                    batch_imgs.append(data['imgs'])
+                    im = np.transpose(data['imgs'] , (2,0,1))
+                    batch_imgs.append(im)
                     batch_labels.append(data['labels'])
                     # print(np.shape(data['bboxes']))
                     batch_bboxes.append(data['bboxes'])
@@ -172,7 +175,7 @@ class CoCoDataGenrator:
         im_resize = cv2.resize(origin_im, None, None, fx=im_scale, fy=im_scale, interpolation=cv2.INTER_LINEAR)
         im_resize_shape = np.shape(im_resize)
         im_blob = np.zeros(self.img_shape, dtype=np.float32)
-        im_blob[0:im_resize_shape[0], 0:im_resize_shape[1], :] = im_resize
+        im_blob[0:im_resize_shape[0], 0:im_resize_shape[1], : ] = im_resize
 
         # resize对应边框
         bboxes_resize = np.array(bboxes * im_scale, dtype=np.int16)
@@ -249,7 +252,7 @@ class CoCoDataGenrator:
             img = io.imread(download_image_file)
         else:
             return img
-
+        
         if len(np.shape(img)) < 2:
             return img
         elif len(np.shape(img)) == 2:
@@ -258,6 +261,7 @@ class CoCoDataGenrator:
             # img = np.pad(img, [(0, 0), (0, 0), (0, 2)])
         else:
             img = img[:, :, ::-1]
+
         return img
 
     def _load_annotations(self, image_id):
@@ -416,6 +420,7 @@ class CoCoDataGenrator:
                     else:
                         return outputs
                 new_img, new_bboxes = self.argument.random_mosaic(input_images, input_bboxes, self.img_shape[0])
+
                 if len(new_bboxes)>0:
                     new_labels = new_bboxes[:,-1]
                     outputs['imgs'] = new_img
@@ -460,6 +465,7 @@ if __name__ == "__main__":
     data = coco.next_batch()
     # data = coco._data_generation(2)
     gt_imgs = data['imgs']
+    print(np.shape(gt_imgs))
     gt_boxes = data['bboxes']
     gt_classes = data['labels']
     gt_masks = data['masks']

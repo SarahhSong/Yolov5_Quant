@@ -5,7 +5,7 @@ import tqdm
 import numpy as np
 import pandas as pd
 from yolo import Yolo
-import tensorflow as tf
+# import tensorflow as tf
 from data.generate_coco_data import CoCoDataGenrator
 from layers import nms
 from data.visual_ops import draw_bounding_box
