@@ -282,4 +282,10 @@ def nms(image_shape, predicts, conf_thres=0.45, iou_thres=0.2, max_det=300, max_
 
     return output
 
+if __name__ == "__main__":
+    c3 = C3(64,64)
+    print(c3)
+    sppf = SPPF(512,1024)
+    print(sppf)
+
 
