@@ -6,7 +6,7 @@ import numpy as np
 
 class Upsample(M.Module):
 
-    def __init__(self, scale_factor=2, mode="bilinear"):
+    def __init__(self, scale_factor=2., mode="nearest"):
         super().__init__()
         self.scale_factor = scale_factor
         self.mode = mode
@@ -91,8 +91,8 @@ class Bottleneck(M.Module):
         super().__init__()
         hidden_channels = int(out_channels * expansion)
         # Conv = DWConv if depthwise else Conv
-        self.conv1 = Conv(in_channels, hidden_channels, 1, stride=1, act=act)
-        self.conv2 = Conv(hidden_channels, out_channels, 3, stride=1, act=act)
+        self.conv1 = Conv(in_channels, hidden_channels, 1, 1, act=act)
+        self.conv2 = Conv(hidden_channels, out_channels, 3, 1, act=act)
         self.use_add = shortcut and in_channels == out_channels
 
     def forward(self, x):
