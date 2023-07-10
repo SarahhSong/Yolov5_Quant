@@ -14,7 +14,7 @@ from utils.printModel import summary
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-class Yolov5s(M.Module):
+class Yolov5(M.Module):
      def __init__(self,
             image_shape,
             batch_size,
@@ -74,7 +74,7 @@ class Yolo:
 
         self.grid = []
         self.anchor_grid = []
-        self.yolov5 = Yolov5s(image_shape=self.image_shape,
+        self.yolov5 = Yolov5(image_shape=self.image_shape,
                 batch_size=self.batch_size,
                 num_class=self.num_class,
                 anchors_per_location=self.anchors_per_location,
