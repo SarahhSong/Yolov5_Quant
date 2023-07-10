@@ -158,12 +158,19 @@ class Concat(M.Module):
         self.d = dimension
 
     def forward(self, x):
-        return F.concat(x,self.d)
+        for i, t in enumerate(x):
+            # print(type(t))
+            if isinstance(t, tuple):
+                x[i] = t[0]
+                # print(type(x[i]))
+        # <class 'tuple'>
+        # <class 'megengine.tensor.Tensor'>
+        return F.concat(x, axis=self.d)
 
 
 class Reshape(M.Module):
     def __init__(self, target_shape):
-        super.__init__()
+        super().__init__()
         self.t_shape = target_shape
     
     def forward(self, x):
