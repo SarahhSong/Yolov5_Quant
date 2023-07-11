@@ -15,6 +15,8 @@ import megengine as mge
 # from yolov5m import Yolov5m
 from yolov5s import Yolov5s
 from layers import nms, YoloHead, Reshape
+from layers import nms, meshgrid, YoloHead, Reshape
+from utils.printModel import summary
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -320,13 +322,13 @@ class Yolo:
 
 if __name__ == "__main__":
     image_shape = (640, 640, 3)
-    anchors = np.array([[8, 10], [21, 26], [33, 64],
-                        [65, 34], [58, 123], [102, 74],
-                        [117, 182], [204, 107], [248, 220]]) / image_shape[0]
+    anchors = np.array([[10, 13], [16, 30], [33, 23],
+                        [30, 61], [62, 45], [59, 119],
+                        [116, 90], [156, 198], [373, 326]]) / image_shape[0]
     anchor_masks = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]], dtype=np.int8)
     anchors = np.array(anchors, dtype=np.float32)
     yolo = Yolo(num_class=80, batch_size=1, is_training=True, anchors=anchors, anchor_masks=anchor_masks)
-    print(yolo.yolov5.named_modules)
+    summary(yolo.yolov5,(3,640,640))
     # yolo.yolov5.summary(line_length=200)
     #
     # from tensorflow.python.ops import summary_ops_v2
