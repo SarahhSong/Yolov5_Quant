@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-    yolo5s = Backbone(image_shape=(640, 640, 3),
+    yolo5s = Yolov5s(image_shape=(640, 640, 3),
                      batch_size=2,
                      num_class=30,
                      anchors_per_location=3)

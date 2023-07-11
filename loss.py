@@ -3,7 +3,7 @@ import numpy as np
 import megengine.functional as F
 import megengine.module as M
 import megengine
-import tensorflow as tf
+# import tensorflow as tf
 
 
 def broadcast_iou(box_1, box_2):
