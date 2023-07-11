@@ -188,9 +188,10 @@ def meshgrid(x, y):
  
 
 class YoloHead(M.Module):
-    def __init__(self, image_shape, num_class, is_training, strides, anchors, anchors_masks):
+    def __init__(self, image_shape, batch_size, num_class, is_training, strides, anchors, anchors_masks):
         super().__init__()
         self.image_shape = image_shape
+        self.batch_size = batch_size
         self.num_class = num_class
         self.is_training = is_training
         self.strides = strides
@@ -203,6 +204,7 @@ class YoloHead(M.Module):
             self.grid.append(grid)
             self.anchor_grid.append(anchor_grid)
 
+    # 推理时的yolohead检测头，训练时不做处理
     def forward(self, inputs):
         detect_res = []
         for i, pred in enumerate(inputs):
@@ -222,10 +224,10 @@ class YoloHead(M.Module):
                 pred_obj = pred[..., 4:5]
                 # pred_cls = tf.keras.layers.Softmax()(pred[..., 5:])
                 pred_cls = pred[..., 5:]
-                cur_layer_pred_res = M.Concat([pred_xy, pred_wh, pred_obj, pred_cls], axis=-1)
+                cur_layer_pred_res = F.concat([pred_xy, pred_wh, pred_obj, pred_cls], axis=-1)
 
                 # cur_layer_pred_res = tf.reshape(cur_layer_pred_res, [self.batch_size, -1, self.num_class + 5])
-                cur_layer_pred_res = Reshape([f_shape[1]*f_shape[2]*f_shape[3], self.num_class + 5])(cur_layer_pred_res)
+                cur_layer_pred_res = Reshape([self.batch_size, f_shape[1]*f_shape[2]*f_shape[3], self.num_class + 5])(cur_layer_pred_res)
                 detect_res.append(cur_layer_pred_res)
             else:
                 detect_res.append(pred)
@@ -294,11 +296,15 @@ if __name__ == "__main__":
     # print(c3)
     # sppf = SPPF(512,1024)
     # print(sppf) # c3 = C3(64,64)
-
-    x = F.ones(32 * 320 * 320 * 3)
-    x = F.reshape(x , [32,320,320,3])
-    print(x.shape)
-    conv1 = Conv(3,32,6,2)
-    print(conv1(x))
+    num_class = 80
+    image_shape = (640, 640, 3)
+    anchors = np.array([[10, 13], [16, 30], [33, 23],
+                        [30, 61], [62, 45], [59, 119],
+                        [116, 90], [156, 198], [373, 326]]) / image_shape[0]
+    anchor_masks = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]], dtype=np.int8)
+    head = YoloHead(image_shape, num_class, True, strides=[8, 16, 32], anchors=anchors, anchors_masks=anchor_masks)
+    imgs = F.arange(2 * 3 * 640 * 640)
+    imgs = F.reshape(imgs, (2,3,640,640))
+    print(head(yolo5s(imgs)))
 
 

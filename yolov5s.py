@@ -74,11 +74,11 @@ class Yolov5s(M.Module):
 
       #output
       p7 = M.Conv2d(128, (self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p7) # padding=0
-      p7 = Reshape([self.image_shape[0]//8, self.image_shape[1]//8, self.anchors_per_location, self.num_class + 5])(p7)
+      p7 = Reshape([self.batch_size, self.image_shape[0]//8, self.image_shape[1]//8, self.anchors_per_location, self.num_class + 5])(p7)
       p8 = M.Conv2d(256, (self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p8)
-      p8 = Reshape([self.image_shape[0]//16, self.image_shape[1]//16, self.anchors_per_location, self.num_class + 5])(p8)
+      p8 = Reshape([self.batch_size, self.image_shape[0]//16, self.image_shape[1]//16, self.anchors_per_location, self.num_class + 5])(p8)
       p9 = M.Conv2d(512, (self.num_class + 5) * self.anchors_per_location, kernel_size=1)(p9)
-      p9 = Reshape([self.image_shape[0]//32, self.image_shape[1]//32, self.anchors_per_location, self.num_class + 5])(p9)
+      p9 = Reshape([self.batch_size, self.image_shape[0]//32, self.image_shape[1]//32, self.anchors_per_location, self.num_class + 5])(p9)
       
       return (p7, p8, p9)
 
@@ -99,6 +99,8 @@ if __name__ == "__main__":
 
     yolo5s = Yolov5s(image_shape=(640, 640, 3),
                      batch_size=2,
-                     num_class=30,
+                     num_class=80,
                      anchors_per_location=3)
-    print(yolo5s.named_modules)
+    imgs = F.arange(2 * 3 * 640 * 640)
+    imgs = F.reshape(imgs, (2,3,640,640))
+    print(yolo5s(imgs)[0].shape)

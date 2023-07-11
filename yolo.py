@@ -31,6 +31,7 @@ class Yolov5(M.Module):
                       anchors_per_location=anchors_per_location,)
          self.head = YoloHead(image_shape=image_shape,
                     num_class=num_class,
+                    batch_size=batch_size,
                     is_training=is_training,
                     strides=strides,
                     anchors=anchors,
@@ -39,6 +40,7 @@ class Yolov5(M.Module):
      def forward(self, x):
          x = self.backbone(x)
          x = self.head(x)
+         return x
 
 class Yolo:
 
@@ -49,7 +51,7 @@ class Yolo:
                  image_shape=[640, 640, 3],
                  is_training=True,
                  batch_size=5,
-                #  net_type='5s',
+                 net_type='5s',
                  strides=[8, 16, 32],
                  anchors_per_location=3,
                  yolo_max_boxes=100,
@@ -59,7 +61,7 @@ class Yolo:
         self.image_shape = image_shape
         self.is_training = is_training
         self.batch_size = batch_size
-        # self.net_type = net_type
+        self.net_type = net_type
         self.strides = strides
         self.anchors_per_location = anchors_per_location
         self.yolo_max_boxes = yolo_max_boxes
@@ -238,14 +240,18 @@ class Yolo:
 
 
 if __name__ == "__main__":
+    batch_size = 3
     image_shape = (640, 640, 3)
     anchors = np.array([[10, 13], [16, 30], [33, 23],
                         [30, 61], [62, 45], [59, 119],
                         [116, 90], [156, 198], [373, 326]]) / image_shape[0]
     anchor_masks = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]], dtype=np.int8)
     anchors = np.array(anchors, dtype=np.float32)
-    yolo = Yolo(num_class=80, batch_size=1, is_training=True, anchors=anchors, anchor_masks=anchor_masks)
-    summary(yolo.yolov5,(3,640,640))
+    yolo = Yolov5(image_shape, batch_size=batch_size, num_class=80, anchors_per_location=3, strides=[8, 16, 32], is_training=False, anchors=anchors, anchors_masks=anchor_masks)
+    imgs = F.arange(batch_size * 3 * 640 * 640)
+    imgs = F.reshape(imgs, (batch_size,3,640,640))
+    for i in yolo(imgs):
+        print(i.shape)
 
     # yolo.yolov5.summary(line_length=200)
     #s
