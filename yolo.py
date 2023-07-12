@@ -247,7 +247,7 @@ if __name__ == "__main__":
                         [116, 90], [156, 198], [373, 326]]) / image_shape[0]
     anchor_masks = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]], dtype=np.int8)
     anchors = np.array(anchors, dtype=np.float32)
-    yolo = Yolov5(image_shape, batch_size=batch_size, num_class=80, anchors_per_location=3, strides=[8, 16, 32], is_training=False, anchors=anchors, anchors_masks=anchor_masks)
+    yolo = Yolov5(image_shape, batch_size=batch_size, num_class=80, anchors_per_location=3, strides=[8, 16, 32], is_training=True, anchors=anchors, anchors_masks=anchor_masks)
     imgs = F.arange(batch_size * 3 * 640 * 640)
     imgs = F.reshape(imgs, (batch_size,3,640,640))
     for i in yolo(imgs):

@@ -305,6 +305,5 @@ if __name__ == "__main__":
     head = YoloHead(image_shape, num_class, True, strides=[8, 16, 32], anchors=anchors, anchors_masks=anchor_masks)
     imgs = F.arange(2 * 3 * 640 * 640)
     imgs = F.reshape(imgs, (2,3,640,640))
-    print(head(yolo5s(imgs)))
 
 
