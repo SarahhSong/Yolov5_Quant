@@ -103,7 +103,7 @@ def main():
     yolo.yolov5.named_modules
     model = yolo.yolov5
 
-    model_qat = convert_qat(model)
+    model = convert_qat(model)
 
     # checkpoint = mge.load("./logs/yolov5s-best(img:500).pkl")
     # model.load_state_dict(checkpoint["state_dict"], strict=False)
