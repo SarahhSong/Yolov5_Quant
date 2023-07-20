@@ -1,3 +1,7 @@
+import sys
+sys.path.append('../Yolov5_Quant')
+
+
 import cv2
 import random
 import colorsys
@@ -5,8 +9,12 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 
+
 def draw_bounding_box(im, cls, scores, x_min, y_min, x_max, y_max, thickness=2, color=(11, 252, 3), txt_size=0.35):
     im_cp = np.array(im.copy(), dtype=np.uint8)
+    if im_cp.shape == (3, 320, 320):
+        im_cp = np.transpose(im_cp , (1,2,0)).copy()
+    # print(im_cp.shape)
     cv2.rectangle(im_cp, (int(x_min), int(y_min)), (int(x_max), int(y_max)), color=color, thickness=thickness)
     txt = "{}:{:.3f}".format(cls, scores)
     x_rect_min = int(x_min)
@@ -23,6 +31,7 @@ def draw_bounding_box(im, cls, scores, x_min, y_min, x_max, y_max, thickness=2, 
     cv2.rectangle(im_cp, (x_rect_min, y_rect_min), (x_rect_max, y_rect_max), (11, 252, 3), -1)
     # draw txt
     cv2.putText(im_cp, txt, (x_txt, y_txt), cv2.FONT_HERSHEY_SIMPLEX, txt_size, (0, 0, 0))
+    # iswritten = cv2.imwrite('img.jpg', im_cp)
     return im_cp
 
 
@@ -105,19 +114,20 @@ def _random_colors(N, bright=True):
     return colors
 
 
-if __name__ == "__main__":
-    print(_random_colors(10)[np.random.choice(10)])
-    # from data.xml_ops import xml2dict
-    # im_file = "detect_data/JPEGImages_png/Cats_Test4.png"
-    # xml_file = "detect_data/Annotations/Cats_Test4.xml"
-    # im = cv2.imread(im_file)
-    # xml = xml2dict(xml_file)
-    # xmin = int(xml['annotation']['object']['bndbox']['xmin'])
-    # ymin = int(xml['annotation']['object']['bndbox']['ymin'])
-    # xmax = int(xml['annotation']['object']['bndbox']['xmax'])
-    # ymax = int(xml['annotation']['object']['bndbox']['ymax'])
-    #
-    # box_im = draw_bounding_box(im, "", "", xmin, ymin, xmax,ymax)
-    # cv2.imshow("b", box_im)
-    #
-    # cv2.waitKey(0)
+# if __name__ == "__main__":
+#     print(_random_colors(10)[np.random.choice(10)])
+#     # from data.xml_ops import xml2dict
+#     im_file = "detect_data/JPEGImages_png/Cats_Test4.png"
+#     xml_file = "detect_data/Annotations/Cats_Test4.xml"
+#     im = cv2.imread(im_file)
+#     xml = xml2dict(xml_file)
+#     xmin = int(xml['annotation']['object']['bndbox']['xmin'])
+#     ymin = int(xml['annotation']['object']['bndbox']['ymin'])
+#     xmax = int(xml['annotation']['object']['bndbox']['xmax'])
+#     ymax = int(xml['annotation']['object']['bndbox']['ymax'])
+    
+#     box_im = draw_bounding_box(im, "", "", xmin, ymin, xmax,ymax)
+#     a = cv2.imwrite("b.jpg", box_im)
+#     if a:
+#         print("sucess")
+#     cv2.waitKey(0)
