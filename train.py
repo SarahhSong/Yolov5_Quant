@@ -14,7 +14,8 @@ import megengine.optimizer as optim
 from megengine.autodiff import GradManager
 from data.visual_ops import draw_bounding_box
 from data.generate_coco_data import CoCoDataGenrator
-from yolo import Yolo
+from megengine.quantization import quantize
+from yolo import Yolo, convert_qat
 from loss import ComputeLoss
 from val import val
 from layers import nms
@@ -24,16 +25,16 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def main():
-    epochs = 300
+    epochs = 5
     log_dir = './logs'
     # 可以选择 ['5l', '5s', '5m', '5x']
     yolov5_type = "5s"
     image_shape = (320, 320, 3)
-    num_class = 81
+    num_class = 91
     # num_class = 2
-    batch_size = 32
+    batch_size = 8
     # -1表示全部数据参与训练
-    train_img_nums = -1
+    train_img_nums = 500
     train_coco_json = '/mnt/e/数据集/COCO/annotations/annotations_trainval2017/annotations/instances_train2017.json'
     val_coco_json = '/mnt/e/数据集/COCO/annotations/annotations_trainval2017/annotations/instances_val2017.json'
     train_coco_data = '/mnt/e/数据集/COCO/images/train2017/train2017'
@@ -100,9 +101,20 @@ def main():
         net_type=yolov5_type
     )
     yolo.yolov5.named_modules
+    model = yolo.yolov5
+
+    model_qat = convert_qat(model)
+
+    # checkpoint = mge.load("./logs/yolov5s-best(img:500).pkl")
+    # model.load_state_dict(checkpoint["state_dict"], strict=False)
+    # model = quantize(model_qat)
+    # print(model)
+    # with open('model.txt', 'w') as f:
+    #     for k, v in model.named_parameters():
+    #         f.write("{}\t{}\n".format(k, v))
+
     # summary(yolo.yolov5,(3,640,640))
-    # optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001)
-    optimizer = optim.Adam(yolo.yolov5.parameters() , lr = 0.0001)
+    optimizer = optim.Adam(model.parameters() , lr = 0.0001)
 
     loss_fn = ComputeLoss(
         image_shape=image_shape,
@@ -121,7 +133,7 @@ def main():
         train_progress_bar = tqdm.tqdm(range(coco_data.total_batch_size), desc="train epoch {}/{}".format(epoch, epochs-1), ncols=100)
         for batch in train_progress_bar:
             with GradManager() as gm:
-                gm.attach(yolo.yolov5.parameters())
+                gm.attach(model.parameters())
                 data = coco_data.next_batch()
                 valid_nums = data['valid_nums']
                 gt_imgs = np.array(data['imgs'] / 255., dtype=np.float32)
@@ -137,16 +149,18 @@ def main():
                 # for i, nums in enumerate(valid_nums):
                 #     print("gt boxes: ", gt_boxes[i, :nums, :] * image_shape[0])
                 #     print("gt classes: ", gt_classes[i, :nums])
-                print(gt_imgs.shape)
-                print(gt_imgs)
-                yolo_preds = yolo.yolov5(gt_imgs)
+                yolo_preds = model(gt_imgs)
                 loss_xy, loss_wh, loss_box, loss_obj, loss_cls = loss_fn(yolo_preds, gt_boxes, gt_classes)
+                # print("loss_box:{}, loss_cls:{}, loss_obj:{}".format(loss_box, loss_cls, loss_obj))
 
                 total_loss = loss_box + loss_obj + loss_cls
                 train_progress_bar.set_postfix(ordered_dict={"loss":'{:.5f}'.format(total_loss)})
 
                 # grad = tape.gradient(total_loss, yolo.yolov5.trainable_variables)
-                gm.backward(total_loss)
+                gm.backward(mge.Tensor(np.array(total_loss)))
+                with open('grad.txt', 'w') as f:
+                    for name, paramer in model.named_parameters():
+                        f.write("-->name:{}\t-->grad_value:{}\n".format(name, paramer.grad))
                 # optimizer.apply_gradients(zip(grad, yolo.yolov5.trainable_variables))
                 optimizer.step().clear_grad()
 
@@ -161,9 +175,10 @@ def main():
                     tf.summary.scalar('loss/total_loss', total_loss,
                                       step=epoch * coco_data.total_batch_size + batch)
 
-                # image, 只拿每个batch的其中一张
+                # # image, 只拿每个batch的其中一张
                 random_one = random.choice(range(batch_size))
                 # gt
+                gt_imgs = gt_imgs.numpy()
                 gt_img = gt_imgs[random_one].copy() * 255
                 gt_box = gt_boxes[random_one] * image_shape[0]
                 gt_class = gt_classes[random_one]
@@ -175,7 +190,7 @@ def main():
                     # print(xmin, ymin, xmax, ymax)
                     gt_img = draw_bounding_box(gt_img, class_name, cls, int(xmin), int(ymin), int(xmax), int(ymax))
 
-                # pred, 同样只拿第一个batch的pred
+                # # pred, 同样只拿第一个batch的pred
                 pred_img = gt_imgs[random_one].copy() * 255
                 yolo_head_output = yolo.yolo_head(yolo_preds, is_training=False)
                 nms_output = nms(image_shape, yolo_head_output.numpy(), iou_thres=0.3)
@@ -191,12 +206,12 @@ def main():
                                 pred_img = draw_bounding_box(pred_img, class_name, box_obj_cls[4], int(xmin), int(ymin),
                                                              int(xmax), int(ymax))
 
-                concat_imgs = tf.concat([gt_img[:, :, ::-1], pred_img[:, :, ::-1]], axis=1)
-                summ_imgs = tf.expand_dims(concat_imgs, 0)
-                summ_imgs = tf.cast(summ_imgs, dtype=tf.uint8)
-                with summary_writer.as_default():
-                    tf.summary.image("imgs/gt,pred,epoch{}".format(epoch), summ_imgs,
-                                     step=epoch * coco_data.total_batch_size + batch)
+                # concat_imgs = tf.concat([gt_img[:, :, ::-1], pred_img[:, :, ::-1]], axis=1)
+                # summ_imgs = tf.expand_dims(concat_imgs, 0)
+                # summ_imgs = tf.cast(summ_imgs, dtype=tf.uint8)
+                # with summary_writer.as_default():
+                #     tf.summary.image("imgs/gt,pred,epoch{}".format(epoch), summ_imgs,
+                #                      step=epoch * coco_data.total_batch_size + batch)
         # 这里计算一下训练集的mAP
         val(model=yolo, val_data_generator=coco_data, classes=classes, desc='training dataset val')
         # 这里计算验证集的mAP
@@ -206,20 +221,21 @@ def main():
             # yolo.yolov5.save_weights(log_dir+"/yolov{}-best.h5".format(yolov5_type))
             mge.save({
                 "epoch": epoch,
-                "state_dict": yolo.yolov5.state_dict(),
+                "state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "mAP": mAP
-               }, './log_dor/yolov{}-best.pkl'.format(yolov5_type))
+                }, './logs/yolov{}-best.pkl'.format(yolov5_type))
             print("save {}/yolov{}-best.pkl best weight with {} mAP.".format(log_dir, yolov5_type, mAP))
         # yolo.yolov5.save_weights(log_dir+"/yolov{}-last.h5".format(yolov5_type))
+
         if epoch % 10 == 0:
           mge.save({
                 "epoch": epoch,
-                "state_dict": yolo.yolov5.state_dict(),
+                "state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "mAP": mAP
-               }, './log_dor/yolov{}-last.pkl'.format(yolov5_type))
-          print("save {}/yolov{}-last.pkl last weights at epoch {}.".format(log_dir, yolov5_type, epoch))
+                }, './logs/yolov{}-epoch{}.pkl'.format(yolov5_type, epoch))
+          print("save {}/yolov{}-epcho.pkl last weights at epoch {}.".format(log_dir, yolov5_type, epoch))
 
 
 if __name__ == "__main__":

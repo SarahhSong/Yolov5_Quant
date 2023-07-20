@@ -16,26 +16,13 @@ class Upsample(M.Module):
 
 
 class SiLU(M.Module):
-    """export-friendly version of M.SiLU()"""
-
-    @staticmethod
-    def forward(x):
-        return x * F.sigmoid(x)
-
-
-def get_activation(name="silu"):
-    if name == "silu":
-        if hasattr(M, "SiLU"):
-            module = M.SiLU()
-        else:
-            module = SiLU()
-    elif name == "relu":
-        module = M.ReLU()
-    elif name == "lrelu":
-        module = M.LeakyReLU(0.1)
-    else:
-        raise AttributeError("Unsupported act type: {}".format(name))
-    return module
+    
+    def __init__(self):
+        super().__init__()
+        self.act = M.Elemwise("SILU")
+    
+    def forward(self, x):
+        return self.act(x)
 
 
 class Conv(M.Module):
@@ -45,25 +32,19 @@ class Conv(M.Module):
         super().__init__()
         # same padding
         pad = (ksize - 1) // 2
-        self.conv = M.Conv2d(
-            in_channels,
-            out_channels,
-            kernel_size=ksize,
-            stride=stride,
-            padding=pad,
-            groups=groups,
-            bias=bias,
-        )
-        self.bn = M.BatchNorm2d(out_channels)
-        self.act = get_activation(act)
+        self.silu = SiLU()
+        self.act = act
+        self.conv_bn_relu1 = M.ConvBnRelu2d(in_channels, out_channels, ksize, stride, padding=pad, bias=bias)
+        self.con_bn1 = M.ConvBn2d(in_channels, out_channels, ksize, stride, padding=pad, bias=bias )
 
     def forward(self, x):
-        return self.act(self.bn(self.conv(x)))
+        if self.act == "relu":
+            x = self.conv_bn_relu1(x)
+        elif self.act == "silu":
+            x = self.silu(self.con_bn1(x))
+        return x
 
-    def fuseforward(self, x):
-        return self.act(self.conv(x))
-
-
+    
 class DWConv(M.Module):
     """Depthwise Conv + Conv"""
     def __init__(self, in_channels, out_channels, ksize, stride=1, act="silu"):
@@ -94,11 +75,12 @@ class Bottleneck(M.Module):
         self.conv1 = Conv(in_channels, hidden_channels, 1, 1, act=act)
         self.conv2 = Conv(hidden_channels, out_channels, 3, 1, act=act)
         self.use_add = shortcut and in_channels == out_channels
+        self.add = M.Elemwise("ADD")
 
     def forward(self, x):
         y = self.conv2(self.conv1(x))
         if self.use_add:
-            y = y + x
+            y = self.add(x ,y)
         return y
 
 
@@ -121,6 +103,7 @@ class C3(M.Module):
         self.conv1 = Conv(in_channels, hidden_channels, 1, stride=1, act=act)
         self.conv2 = Conv(in_channels, hidden_channels, 1, stride=1, act=act)
         self.conv3 = Conv(2 * hidden_channels, out_channels, 1, stride=1, act=act)
+        self.concat = Concat(1)
         module_list = [
             Bottleneck(hidden_channels, hidden_channels, shortcut, 1.0, depthwise, act=act)
             for _ in range(n)
@@ -131,7 +114,7 @@ class C3(M.Module):
         x_1 = self.conv1(x)
         x_2 = self.conv2(x)
         x_1 = self.m(x_1)
-        x = F.concat((x_1, x_2), axis=1)
+        x = self.concat([x_1, x_2])
         return self.conv3(x)
 
 
@@ -142,30 +125,30 @@ class SPPF(M.Module):
         self.conv1 = Conv(in_channels, in_half_channels, 1, 1)
         self.conv2 = Conv(in_half_channels*4, out_channels, 1, 1)
         self.maxpool = M.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2)
+        self.concat = Concat(1)
     
     def forward(self, x):
         x = self.conv1(x)
         y1 = self.maxpool(x)
         y2 = self.maxpool(y1)
         y3 = self.maxpool(y2)
-        concat_all = F.concat([x, y1, y2, y3],axis=1)
+        concat_all = self.concat([x, y1, y2, y3])
         output = self.conv2(concat_all)
         return output
+
 
 class Concat(M.Module):
     def __init__(self, dimension=1):
         super().__init__()
         self.d = dimension
 
+    # change <class 'tuple'> to <class 'megengine.tensor.Tensor'> for concat
     def forward(self, x):
+        model = M.Concat()
         for i, t in enumerate(x):
-            # print(type(t))
             if isinstance(t, tuple):
                 x[i] = t[0]
-                # print(type(x[i]))
-        # <class 'tuple'>
-        # <class 'megengine.tensor.Tensor'>
-        return F.concat(x, axis=self.d)
+        return model(x, axis=self.d)
 
 
 class Reshape(M.Module):
@@ -176,7 +159,7 @@ class Reshape(M.Module):
     def forward(self, x):
         return F.reshape(x, self.t_shape)
 
-# tested
+
 def meshgrid(x, y):
     # meshgrid wrapper for megengine
     assert len(x.shape) == 1
@@ -224,6 +207,7 @@ class YoloHead(M.Module):
                 pred_obj = pred[..., 4:5]
                 # pred_cls = tf.keras.layers.Softmax()(pred[..., 5:])
                 pred_cls = pred[..., 5:]
+                print(pred_xy.shape, pred_cls.shape)
                 cur_layer_pred_res = F.concat([pred_xy, pred_wh, pred_obj, pred_cls], axis=-1)
 
                 # cur_layer_pred_res = tf.reshape(cur_layer_pred_res, [self.batch_size, -1, self.num_class + 5])
@@ -233,7 +217,7 @@ class YoloHead(M.Module):
                 detect_res.append(pred)
         return detect_res if self.is_training else F.concat(detect_res, axis=1)
     
-    # tested
+
     def _make_grid(self, h, w, i):
         cur_layer_anchors = self.anchors[self.anchors_masks[i]] * np.array([[self.image_shape[1], self.image_shape[0]]])
         cur_layer_anchors = mge.Tensor(cur_layer_anchors)
@@ -285,7 +269,7 @@ def nms(image_shape, predicts, conf_thres=0.45, iou_thres=0.2, max_det=300, max_
         # 边框加偏移
         boxes, scores = predict[:, :4] + cls, predict[:, 4]
         nms_ids = F.vision.nms(
-            boxes, scores, iou_thres, max_det)
+            mge.Tensor(boxes), mge.Tensor(scores), iou_thres, max_det)
 
         output.append(predict[nms_ids.numpy()])
 
@@ -302,7 +286,7 @@ if __name__ == "__main__":
                         [30, 61], [62, 45], [59, 119],
                         [116, 90], [156, 198], [373, 326]]) / image_shape[0]
     anchor_masks = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]], dtype=np.int8)
-    head = YoloHead(image_shape, num_class, True, strides=[8, 16, 32], anchors=anchors, anchors_masks=anchor_masks)
+    head = YoloHead(image_shape, 2, num_class, True, strides=[8, 16, 32], anchors=anchors, anchors_masks=anchor_masks)
     imgs = F.arange(2 * 3 * 640 * 640)
     imgs = F.reshape(imgs, (2,3,640,640))
 

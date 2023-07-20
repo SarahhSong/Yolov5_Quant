@@ -9,6 +9,7 @@ from yolo import Yolo
 from data.generate_coco_data import CoCoDataGenrator
 from layers import nms
 from data.visual_ops import draw_bounding_box
+import megengine as mge
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -109,7 +110,7 @@ def val(model, val_data_generator, classes, desc='val'):
         # [m, 6(x1,y1,x2,y2,conf,cls_id)]
         if model.is_training:
             # predictions = model.yolov5(gt_imgs / 255., training=True)
-            predictions = model.yolov5.predict(gt_imgs / 255.)
+            predictions = model.yolov5(mge.Tensor(gt_imgs / 255.))
             predictions = model.yolo_head(predictions, is_training=False)
             predictions = nms(model.image_shape, predictions.numpy())
         else:
