@@ -28,7 +28,7 @@ class SiLU(M.Module):
 class Conv(M.Module):
     """A Conv2d -> Batchnorm -> silu/leaky relu block"""
 
-    def __init__(self, in_channels, out_channels, ksize, stride, groups=1, bias=False, act="silu"):
+    def __init__(self, in_channels, out_channels, ksize, stride, groups=1, bias=False, act="relu"):
         super().__init__()
         # same padding
         pad = (ksize - 1) // 2
@@ -47,7 +47,7 @@ class Conv(M.Module):
     
 class DWConv(M.Module):
     """Depthwise Conv + Conv"""
-    def __init__(self, in_channels, out_channels, ksize, stride=1, act="silu"):
+    def __init__(self, in_channels, out_channels, ksize, stride=1, act="relu"):
         super().__init__()
         self.dconv = Conv(
             in_channels, in_channels, ksize=ksize,
@@ -67,7 +67,7 @@ class Bottleneck(M.Module):
     # Standard bottleneck
     def __init__(
         self, in_channels, out_channels, shortcut=True,
-        expansion=0.5, depthwise=False, act="silu"
+        expansion=0.5, depthwise=False, act="relu"
     ):
         super().__init__()
         hidden_channels = int(out_channels * expansion)
@@ -89,7 +89,7 @@ class C3(M.Module):
 
     def __init__(
         self, in_channels, out_channels, n=1,
-        shortcut=True, expansion=0.5, depthwise=False, act="silu"
+        shortcut=True, expansion=0.5, depthwise=False, act="relu"
     ):
         """
         Args:
