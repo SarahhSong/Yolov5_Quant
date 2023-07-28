@@ -103,37 +103,9 @@ class Yolo:
             assert os.path.isfile(model_path), "Can't find the model weight file!"
             checkpoint = mge.load(model_path)
             self.yolov5.load_state_dict(checkpoint["model_state_dict"])
-            # self.yolov5.load_weights(model_path, by_name=True)
-            # self.yolov5 = tf.keras.models.load_model(model_path)
-            # self.load_weights(model_path, by_name=True)
+
             print("loading model weight from {}".format(model_path))
 
-    # def load_weights(self, model_path, by_name=True, exclude=None):
-    #     import h5py
-    #     from tensorflow.python.keras.saving import hdf5_format
-
-    #     if exclude:
-    #         by_name = True
-
-    #     if h5py is None:
-    #         raise ImportError('`load_weights` requires h5py.')
-    #     with h5py.File(model_path, mode='r') as f:
-    #         if 'layer_names' not in f.attrs and 'model_weights' in f:
-    #             f = f['model_weights']
-
-    #         # In multi-GPU training, we wrap the model. Get layers
-    #         # of the inner model because they have the weights.
-    #         layers = self.yolov5.inner_model.layers if hasattr(self.yolov5, "inner_model") \
-    #             else self.yolov5.layers
-
-    #         # Exclude some layers
-    #         if exclude:
-    #             layers = filter(lambda l: l.name not in exclude, layers)
-
-    #         if by_name:
-    #             hdf5_format.load_weights_from_hdf5_group_by_name(f, layers)
-    #         else:
-    #             hdf5_format.load_weights_from_hdf5_group(f, layers)
 
     def yolo_head(self, features, is_training):
         """ yolo最后输出层wo
@@ -210,26 +182,10 @@ class Yolo:
             else:
                 inputs = np.array([im], dtype=np.float32) / 255.
 
-            # 预测, [batch, -1, num_class + 5]
-            # outputs = self.yolov5.predict(inputs)
             outputs = self.yolov5(inputs)
-            # self.yolov5.load_weights(self.model_path)
-            # outputs = self.yolov5(inputs, training=True)
-            # outputs = YoloHead(image_shape=self.image_shape,
-            #                    num_class=self.num_class,
-            #                    is_training=self.is_training,
-            #                    strides=self.strides,
-            #                    anchors=self.anchors,
-            #                    anchors_masks=self.anchor_masks)
-            # outputs = self.yolo_head(outputs, is_training=False)
-            # 非极大抑制, [nms_nums, (x1, y1, x2, y2, conf, cls)]
-            # nms_outputs = self.nms(outputs.numpy(), iou_thres=0.3)[0]
-            # print(np.max(outputs[:,:,4]),np.min(outputs[:,:,4]))
+
             nms_outputs = nms(self.image_shape, outputs)
-            # nms_outputs = self.nms(outputs.numpy())
-            # print(nms_outputs.shape)
-            # if not nms_outputs.shape[0]:
-            #     continue
+
             if not nms_outputs:
                 continue
             nms_outputs = np.array(nms_outputs[0], dtype=np.float32)
@@ -296,7 +252,7 @@ def  convert_qat(model):
         if isinstance(module, M.QuantStub):
             module.disable_quantize()
 
-    model_qat = quantize_qat(model, qconfig=Q.ema_lowbit_fakequant_qconfig)
+    model_qat = quantize_qat(model, qconfig=qconfig)
     return model_qat
 
 
@@ -309,12 +265,6 @@ def convert_quantized(model, model_path):
     )
 
     model_qat = quantize_qat(model, qconfig=qconfig)
-
-    # model_qat.quant.act_fake_quant = TQT(dtype='qint8')
-    # model_qat.quant.act_fake_quant.scale[...] = 0
-
-    # model_qat.conv_bn_relu1.weight_fake_quant = TQT(dtype='qint8')
-    # model_qat.conv_bn_relu1.act_fake_quant = TQT(dtype='qint8')
 
     checkpoint = mge.load(model_path)
     if "state_dict" in checkpoint:

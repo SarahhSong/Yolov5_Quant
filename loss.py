@@ -39,39 +39,6 @@ def broadcast_iou(box_1, box_2):
     return int_area / (box_1_area + box_2_area - int_area)
 
 
-# def broadcast_iou(box_1, box_2):
-#     """ 计算最终iou
-
-#     :param box_1:
-#     :param box_2:
-#     :return: [batch_size, grid, grid, anchors, num_gt_box]
-#     """
-#     # box_1: (..., (x1, y1, x2, y2))
-#     # box_2: (N, (x1, y1, x2, y2))
-
-#     # broadcast boxes
-#     box_1 = mge.Tensor(box_1.numpy())
-#     box_2 = mge.Tensor(box_2.numpy())
-#     box_1 = F.expand_dims(box_1, -2)
-#     box_2 = F.expand_dims(box_2, 0)
-#     # new_shape: (..., N, (x1, y1, x2, y2))
-#     new_shape = tf.broadcast_dynamic_shape(box_1.shape, box_2.shape)
-#     new_shape = new_shape.numpy()
-#     box_1 = F.broadcast_to(box_1, new_shape)
-#     box_2 = F.broadcast_to(box_2, new_shape)
-
-#     int_w = F.maximum(F.minimum(box_1[..., 2], box_2[..., 2]) -
-#                        F.maximum(box_1[..., 0], box_2[..., 0]), 0)
-#     int_h = F.maximum(F.minimum(box_1[..., 3], box_2[..., 3]) -
-#                        F.maximum(box_1[..., 1], box_2[..., 1]), 0)
-#     int_area = int_w * int_h
-#     box_1_area = (box_1[..., 2] - box_1[..., 0]) * \
-#                  (box_1[..., 3] - box_1[..., 1])
-#     box_2_area = (box_2[..., 2] - box_2[..., 0]) * \
-#                  (box_2[..., 3] - box_2[..., 1])
-#     return int_area / (box_1_area + box_2_area - int_area)
-
-
 def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7):
     """ 计算iou
     :param box1:
@@ -272,18 +239,6 @@ class ComputeLoss:
             targets.append(target)
         return targets
 
-    def fun(self, x):
-        # print("\npred_box:{}\ttrue_box:{}\tobj_mask:{}".format(x[0].shape, x[1].shape, x[2].shape))
-        box1 = x[0]
-        mask = x[2].astype("bool")
-        mask = F.expand_dims(mask, axis=-1)
-        mask = F.broadcast_to(mask, x[1].shape)
-        box2 = F.cond_take(mask, x[1])[0]
-        box2 = F.reshape(box2, (-1 ,4))
-        iou = broadcast_iou(box1, box2)
-        print("iou shape:{}".format(iou.shape))
-        iou = iou.max(axis=-1)
-        return iou
     
     def __call__(self, predicts, gt_boxes, gt_classes):
         """
@@ -303,8 +258,6 @@ class ComputeLoss:
         for i, predict in enumerate(predicts):
             batch = predict.shape[0]
             grid_size = predict.shape[1]
-            anchors_size = predict.shape[3]
-            # print(grid_size)
 
             # ----------------- 这里处理预测数据 --------------------------
             pred_xy, pred_wh, pred_obj, pred_cls = F.split(predict, (2, 4, 5), axis=-1)
@@ -322,19 +275,18 @@ class ComputeLoss:
             # pred_cls = tf.keras.layers.Softmax()(pred_cls)
             pred_cls = F.softmax(pred_cls)
             # print(pred_cls)
-            print("pred_cls.grad:{}".format(pred_cls.grad))
             grid_y, grid_x = meshgrid(F.arange(grid_size), F.arange(grid_size))
 
             grid = F.expand_dims(F.stack([grid_x, grid_y], axis=-1), axis=2)
 
             # 这里xy从偏移量转成具体中心点坐标, 并且做了归一化, anchors在传进来前也做了归一化
             pred_grid_xy = (pred_xy + grid.astype("float32")) / grid_size
-            # print("pred_xy:{}".format(pred_grid_xy))
             pred_x1y1 = pred_grid_xy - pred_wh / 2
             pred_x2y2 = pred_grid_xy + pred_wh / 2
 
             x1, y1 = F.split(pred_x1y1, 2, axis=-1)
             x2, y2 = F.split(pred_x2y2, 2, axis=-1)
+
 
             x1 = F.minimum(F.maximum(x1, 0.), self.image_shape[1])
             y1 = F.minimum(F.maximum(y1, 0.), self.image_shape[0])
@@ -347,11 +299,9 @@ class ComputeLoss:
             target = targets[i]
             target = mge.Tensor(target)
             true_box, true_obj, true_cls = F.split(target, (4, 5), axis=-1)
-            # f = open('log.txt', 'w')
-            # f.write("true_cls:{}".format(true_cls))
+
             true_xy = (true_box[..., 0:2] + true_box[..., 2:4]) / 2
             true_wh = true_box[..., 2:4] - true_box[..., 0:2]
-            # print("true_cls:{}".format(true_cls))
             # 计算true_box的平移缩放量
             # [batch_size, grid, grid, anchors, 2]
             true_xy = true_xy * grid_size - grid.astype("float32")
@@ -362,52 +312,23 @@ class ComputeLoss:
             positive_num = F.sum(obj_mask).astype("int32") + 1
             negative_num = self.balanced_rate * positive_num
 
-            # print(grid_size)
-            # print(tf.where(obj_mask > 0))
-            # print(tf.boolean_mask(pred_xy, obj_mask > 0))
-            # print(tf.boolean_mask(true_xy, obj_mask > 0))
-            # print("--------------")
-
-            # ignore false positive when iou is over threshold
-            # [batch_size, grid, grid, anchors, num_gt_box] => [batch_size, grid, grid, anchors, 1]
-
-            # best_iou = tf.map_fn(
-            #     lambda x: F.max(broadcast_iou(x[0], tf.boolean_mask(
-            #         x[1], tf.cast(x[2], tf.bool))), axis=-1),
-            #     (pred_box, true_box, obj_mask),
-            #     tf.float32)
-
             best_iou = tf.map_fn(
                 lambda x: tf.reduce_max(broadcast_iou(x[0], tf.boolean_mask(
                     x[1], tf.cast(x[2], tf.bool))), axis=-1),
                 (pred_box, true_box, obj_mask),
                 tf.float32)
-            best_iou = mge.Tensor(best_iou.numpy())
             
-            # best_iou = F.zeros((batch, grid_size, grid_size, anchors_size))
-            # for b in range(batch):
-            #     best_iou[b, : , : , : ] = self.fun((pred_box[b], true_box[b], obj_mask[b]))
-
-            # [batch_size, grid, grid, anchors, 1]
-            ignore_mask = (best_iou < self.iou_ignore_thres).astype("float32")
+            ignore_mask = tf.cast(best_iou < self.iou_ignore_thres, tf.float32)
             # 这里做了下样本均衡.
-            ignore_num = F.sum(ignore_mask).astype("int32")
+            ignore_num = tf.cast(tf.reduce_sum(ignore_mask), tf.int32)
             if ignore_num > negative_num:
-                # neg_inds = tf.random.shuffle(tf.where(ignore_mask))[:negative_num]
-                # neg_inds = tf.expand_dims(neg_inds, axis=1)
-                # ones = tf.ones(tf.shape(neg_inds)[0], tf.float32)
-                # ones = tf.expand_dims(ones, axis=1)
-                # # 更新mask
-                # ignore_mask = tf.zeros_like(ignore_mask, tf.float32)
-                # ignore_mask = tf.tensor_scatter_nd_add(ignore_mask, neg_inds, ones)
-                pos = F.cond_take(ignore_mask > 0, ignore_mask)[1]
-                rand.shuffle(pos)
-                neg_inds = pos[:ignore_num - negative_num]
-                ignore_mask_shape = ignore_mask.shape
-                ignore_mask = F.flatten(ignore_mask)
-                zeros = F.zeros(neg_inds.shape)
-                ignore_mask = F.scatter(ignore_mask, 0, neg_inds, zeros).reshape(ignore_mask_shape)
-
+                neg_inds = tf.random.shuffle(tf.where(ignore_mask))[:negative_num]
+                neg_inds = tf.expand_dims(neg_inds, axis=1)
+                ones = tf.ones(tf.shape(neg_inds)[0], tf.float32)
+                ones = tf.expand_dims(ones, axis=1)
+                # 更新mask
+                ignore_mask = tf.zeros_like(ignore_mask, tf.float32)
+                ignore_mask = mge.Tensor(tf.tensor_scatter_nd_add(ignore_mask, neg_inds, ones).numpy())
 
             # 5. calculate all losses
             # [batch_size, grid, grid, anchors]
@@ -415,6 +336,7 @@ class ComputeLoss:
             xy_loss = obj_mask * box_loss_scale * F.sum(F.square(true_xy - pred_xy), axis=-1)
             # [batch_size, grid, grid, anchors]
             wh_loss = obj_mask * box_loss_scale * F.sum(F.square(true_wh - pred_wh), axis=-1)
+           
             obj_mask_new = F.expand_dims(obj_mask, axis = -1)
             obj_mask_new = F.broadcast_to(obj_mask_new, pred_box.shape)
 
@@ -422,32 +344,18 @@ class ComputeLoss:
                             F.cond_take(obj_mask_new > 0, true_box)[0].reshape(-1,4), CIoU=True)
             box_loss = (1. - iou)
 
-            # obj_loss = binary_crossentropy(true_obj, pred_obj)
             conf_focal = F.pow(obj_mask - F.squeeze(pred_obj, -1), 2)
-            # indices = tf.where(true_obj > 0)
-            # true_obj = tf.tensor_scatter_nd_add(true_obj, indices, iou)
             
-            obj_loss = F.squeeze(F.nn.binary_cross_entropy(pred_obj, true_obj, with_logits = False, reduction = "none"),-1)
-            # print("obj_loss:{}".format(obj_loss))
-
-
+            obj_loss = F.nn.binary_cross_entropy(pred_obj, true_obj, reduction = "none")
+            obj_loss = F.squeeze(obj_loss, -1)
             obj_loss = conf_focal * (obj_mask * obj_loss + (1 - obj_mask) * ignore_mask * obj_loss)
-            # obj_loss =  obj_mask * obj_loss + (1 - obj_mask) * ignore_mask * obj_loss
-
-            # obj_loss = tf.keras.losses.binary_crossentropy(true_obj, pred_obj)
             # 这里除了正样本会计算损失, 负样本低于一定置信的也计算损失
-            # obj_loss = obj_mask * obj_loss + (1 - obj_mask) * ignore_mask * obj_loss
-
-            # TODO: use binary_crossentropy instead
-            # class_loss = obj_mask * sparse_categorical_crossentropy(true_class_idx, pred_class)
 
             true_cls = F.reshape(true_cls, true_cls.shape[:-1]) 
             # [batchsize, grid, grid, anchors]
             pred_cls = F.transpose(pred_cls, (0, 4, 1, 2, 3))
             # [batchsize, c, grid, grid, anchors]
-            class_loss = obj_mask * F.nn.cross_entropy(pred_cls, true_cls, with_logits = False, reduction="none")
-            
-
+            class_loss = obj_mask * F.nn.cross_entropy(pred_cls, true_cls, reduction="none")
             # 6. sum over (batch, gridx, gridy, anchors) => (batch, 1)
             loss_xy += F.mean(xy_loss) * batch
             loss_wh += F.mean(wh_loss) * batch
@@ -455,10 +363,9 @@ class ComputeLoss:
                 loss_box += F.mean(box_loss) * batch * self.box_loss_gain
             loss_obj += F.mean(obj_loss) * self.layer_balance[i] * batch * self.obj_loss_gain
             loss_cls += F.mean(class_loss) * batch * self.class_loss_gain
-            # print(loss_cls)   
-        # return xy_loss + wh_loss + obj_loss + class_loss
+            
         return loss_xy, loss_wh, loss_box, loss_obj, loss_cls
-        # return loss_xy, loss_wh, loss_xy+loss_wh, loss_obj, loss_cls
+
 
 
 if __name__ == "__main__":

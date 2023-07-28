@@ -10,6 +10,7 @@ import numpy as np
 import random
 import tensorflow as tf
 import megengine as mge
+import megengine.functional as F
 import megengine.optimizer as optim
 from megengine.autodiff import GradManager
 from data.visual_ops import draw_bounding_box
@@ -20,6 +21,7 @@ from loss import ComputeLoss
 from val import val
 from layers import nms
 from utils.printModel import summary
+
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 logging = mge.logger.get_logger()
@@ -54,7 +56,7 @@ def main():
         "-b",
         "--batch-size",
         metavar="SIZE",
-        default=32,
+        default=16,
         type=int,
         help="batch size for single GPU (default: 32)",
     )
@@ -80,12 +82,12 @@ def main():
         type=float,
         help="learning rate for single GPU (default: 0.0001)",
     )
-    # parser.add_argument(
-    #     "--momentum", default=0.9, type=float, help="momentum (default: 0.9)"
-    # )
-    # parser.add_argument(
-    #     "--weight-decay", default=1e-4, type=float, help="weight decay (default: 1e-4)"
-    # )
+    parser.add_argument(
+        "--momentum", default=0.9, type=float, help="momentum (default: 0.93)"
+    )
+    parser.add_argument(
+        "--weight-decay", default=5e-4, type=float, help="weight decay (default: 5e-4)"
+    )
     parser.add_argument(
         "--mode",
         default="normal",
@@ -93,7 +95,7 @@ def main():
         choices=["normal", "qat"],
         help="Quantization Mode\n"
         "normal: no quantization, using float32\n"
-        "qat: quantization aware training, simulate int8\n"
+        "qat: quantization aware training, simulate int4\n"
     )
     parser.add_argument(
         "--train-json",
@@ -158,6 +160,7 @@ def worker(args):
     )
 
     model = yolo.yolov5
+    
 
     if args.model is not None:
         logging.info("load from checkpoint %s", args.model)
@@ -171,11 +174,6 @@ def worker(args):
     if args.mode == "qat":
         model = convert_qat(model)
 
-    # if args.mode == "quantize":
-    #     model = quantize(model) 
-    #     with open('model.txt', 'w') as f:
-    #         for k, v in model.named_parameters():
-    #             f.write("{}\t{}\n".format(k, v))
 
     optimizer = optim.Adam(model.parameters() , args.lr)
 
@@ -202,31 +200,21 @@ def worker(args):
                 gm.attach(model.parameters())
                 data = coco_data.next_batch()
                 valid_nums = data['valid_nums']
-                gt_imgs = np.array(data['imgs'] / 255., dtype=np.float32)
-                gt_imgs = mge.Tensor(gt_imgs)
+                gt_imgs = mge.Tensor(np.array(data['imgs'] / 255., dtype=np.float32))
                 gt_boxes = np.array(data['bboxes'] / args.img_shape[0], dtype=np.float32)
                 gt_classes = data['labels']
 
-                # print("-------epoch {}, step {}, total step {}--------".format(epoch, batch,
-                #                                                                epoch * coco_data.total_batch_size + batch))
-                # print("current data index: ",
-                #       coco_data.img_ids[(coco_data.current_batch_index - 1) * coco_data.batch_size:
-                #                         coco_data.current_batch_index * coco_data.batch_size])
-                # for i, nums in enumerate(valid_nums):
-                #     print("gt boxes: ", gt_boxes[i, :nums, :] * image_shape[0])
-                #     print("gt classes: ", gt_classes[i, :nums])
                 yolo_preds = model(gt_imgs)
                 loss_xy, loss_wh, loss_box, loss_obj, loss_cls = loss_fn(yolo_preds, gt_boxes, gt_classes)
-                # print("loss_box:{}, loss_cls:{}, loss_obj:{}".format(loss_box, loss_cls, loss_obj))
+                # print("\nloss_box:{}, loss_cls:{}, loss_obj:{}".format(loss_box, loss_cls, loss_obj))
 
                 total_loss = loss_box + loss_obj + loss_cls
-                train_progress_bar.set_postfix(ordered_dict={"loss":'{:.5f}'.format(total_loss)})
+                if F.isnan(total_loss):
+                    print("box:{},obj:{},cls:{}".format(loss_box, loss_obj, loss_cls))
+                    exit()
+                train_progress_bar.set_postfix(ordered_dict={"loss":'{:.5f}'.format(total_loss.item())})
 
-                gm.backward(mge.Tensor(np.array(total_loss)))
-
-                with open('grad.txt', 'w') as f:
-                    for name, paramer in model.named_parameters():
-                        f.write("-->name:{}\t-->grad_value:{}\n".format(name, paramer.grad))
+                gm.backward(total_loss)
 
                 optimizer.step().clear_grad()
 
@@ -272,16 +260,21 @@ def worker(args):
                                 pred_img = draw_bounding_box(pred_img, class_name, box_obj_cls[4], int(xmin), int(ymin),
                                                              int(xmax), int(ymax))
 
+                # if pred_img.shape != (320,320,3):
+                #     tf.transpose(pred_img, (1, 2, 0))
                 # concat_imgs = tf.concat([gt_img[:, :, ::-1], pred_img[:, :, ::-1]], axis=1)
                 # summ_imgs = tf.expand_dims(concat_imgs, 0)
                 # summ_imgs = tf.cast(summ_imgs, dtype=tf.uint8)
                 # with summary_writer.as_default():
                 #     tf.summary.image("imgs/gt,pred,epoch{}".format(epoch), summ_imgs,
                 #                      step=epoch * coco_data.total_batch_size + batch)
+
+
         # 这里计算一下训练集的mAP
         val(model=yolo, val_data_generator=coco_data, classes=classes, desc='training dataset val')
         # 这里计算验证集的mAP
         mAP50, mAP, final_df = val(model=yolo, val_data_generator=val_coco_data, classes=classes, desc='val dataset val')
+        
         if mAP > pre_mAP:
             pre_mAP = mAP
             # yolo.yolov5.save_weights(log_dir+"/yolov{}-best.h5".format(yolov5_type))
@@ -294,7 +287,7 @@ def worker(args):
             print("save {}/yolov{}-best.pkl best weight with {} mAP.".format(args.save, args.arch, mAP))
         # yolo.yolov5.save_weights(log_dir+"/yolov{}-last.h5".format(yolov5_type))
 
-        if epoch % 10 == 0:
+        if epoch % 1 == 0:
           mge.save({
                 "epoch": epoch,
                 "state_dict": model.state_dict(),

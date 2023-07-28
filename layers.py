@@ -207,7 +207,6 @@ class YoloHead(M.Module):
                 pred_obj = pred[..., 4:5]
                 # pred_cls = tf.keras.layers.Softmax()(pred[..., 5:])
                 pred_cls = pred[..., 5:]
-                print(pred_xy.shape, pred_cls.shape)
                 cur_layer_pred_res = F.concat([pred_xy, pred_wh, pred_obj, pred_cls], axis=-1)
 
                 # cur_layer_pred_res = tf.reshape(cur_layer_pred_res, [self.batch_size, -1, self.num_class + 5])
