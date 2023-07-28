@@ -1,7 +1,6 @@
 import sys
 
 sys.path.append('../Yolov5_Quant')
-sys.path.insert(0,"/content/drive/MyDrive/Colab Notebooks/python_packages/")
 
 import argparse
 import os
@@ -99,27 +98,27 @@ def main():
     )
     parser.add_argument(
         "--train-json",
-        default='/mnt/e/数据集/COCO/annotations/annotations_trainval2017/annotations/instances_train2017.json',
+        default='./data/coco/annotations/instances_train2017.json',
         type=str,
-        help="dir for train_data_json (default: )" 
+        help="dir for train_data_json (default: ./data/coco/annotations/instances_train2017.json)" 
     )       
     parser.add_argument(
         "--val-json",
-        default='/mnt/e/数据集/COCO/annotations/annotations_trainval2017/annotations/instances_val2017.json',
+        default='./data/coco/annotations/instances_val2017.json',
         type=str,
-        help="dir for val_data_json (default: )" 
+        help="dir for val_data_json (default: ./data/coco/annotations/instances_val2017.json)" 
     )
     parser.add_argument(
         "--train-data",
-        default='/mnt/e/数据集/COCO/images/train2017/train2017',
+        default='./data/coco/images/train2017',
         type=str,
-        help="dir for train_data (default: )" 
+        help="dir for train_data (default: ./data/coco/images/train2017)" 
     )
     parser.add_argument(
         "--val-data",
-        default='/mnt/e/数据集/COCO/images/val2017/val2017',
+        default='./data/coco/images/val2017',
         type=str,
-        help="dir for val_data (default:)" 
+        help="dir for val_data (default: ./data/coco/images/val2017)" 
     )             
     args = parser.parse_args()
     worker(args)
